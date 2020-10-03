@@ -9,22 +9,20 @@ import requests
 import PyDictionary
 from slack import WebClient
 from slack import RTMClient
+from dotenv import load_dotenv
+
+# loads .env file / environment var's for secret params
+load_dotenv()
 
 # Slack API Set Up
-slack_key = "delet this"  # REMOVED FOR GITHUB
-rtm_client = RTMClient(token="delet this")  # REMOVED FOR GITHUB
-slack_client = WebClient(slack_key)
+rtm_client = RTMClient(token=os.environ["rtm_client_token"])
+slack_client = WebClient(os.environ["slack_key"])
 slack_user_name = "Alignment Bot"
-alignment_bot_training_channel_id = "C01BDJ9V0MP"  # Need to find a way for this not to be hardcoded
+alignment_bot_training_channel_id = os.environ["slack_training_channel"]
 
 # Twitter API Set Up
-consumer_api_key = "delet this"  # REMOVED FOR GITHUB
-consumer_api_secret = "delet this"  # REMOVED FOR GITHUB
-twitter_api_key = "delet this"  # REMOVED FOR GITHUB
-twitter_api_secret = "delet this"  # REMOVED FOR GITHUB
-twitter_bearer_token = "delet this" # REMOVED FOR GITHUB
-auth = tweepy.OAuthHandler(consumer_api_key, consumer_api_secret)
-auth.set_access_token(twitter_api_key, twitter_api_secret)
+auth = tweepy.OAuthHandler(os.environ["consumer_api_key"], os.environ["consumer_api_secret"])
+auth.set_access_token(os.environ["twitter_api_key"], os.environ["twitter_api_secret"])
 api = tweepy.API(auth)
 
 # Misc Set Up
