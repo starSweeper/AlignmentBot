@@ -3,13 +3,25 @@ import io
 import re
 import time
 import json
+import nltk
 import random
 import tweepy
+import pandas
 import requests
 import PyDictionary
 from slack import WebClient
 from slack import RTMClient
+from autocorrect import Speller
 from dotenv import load_dotenv
+from sklearn.svm import SVC
+from sklearn.metrics import accuracy_score
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize as wt
+from nltk.stem.porter import PorterStemmer
+from sklearn.naive_bayes import GaussianNB
+from sklearn.model_selection import train_test_split
+from sklearn.feature_extraction.text import CountVectorizer
+
 
 # loads .env file / environment var's for secret params
 load_dotenv()
@@ -202,28 +214,19 @@ def list_message(**payload):
     event_data = payload["data"]
     web_client = payload['web_client']
 
-    if "text" in event_data and (event_data["text"].startswith("*[LEARN-SOMETHING]*") or
-                                     event_data["text"].startswith("[LEARN-SOMETHING]")):
+    request_a_message = ["message", "post", "comment", "thread", "chat", " dm ", " pm ", " one ", "random"]
+    bot_permission = ["bot", "daisy", "harry", "your ears", "sudo", "@U01AEC6RQTH".lower(), "@U014XVBDWJC".lower()]
+
+    if "text" in event_data and (event_data["text"].replace("*","").startswith("[LEARN-SOMETHING]")):
         post_reaction(event_data["channel"], "robot_face", event_data["ts"])
         post_reaction(event_data["channel"], "thankyou", event_data["ts"])
 
         print("INCOMING MESSAGE: " + event_data["text"])
 
-        reaction_string = ""
-        if "reactions" in event_data:
-            reaction_string = str(event_data["reactions"])
-            reaction_string = (reaction_string[1:-1])
-
-        json_msg = json.dumps('{"msg_body": /"' + event_data["text"] + '/", "user:" /"' + event_data["user"] +
-                              '/", "reactions:" /"' + reaction_string + '/"}')
-
-        print_to_message_file(json_msg + "\n", "training_messages.txt")
-
     # Quirks -- This area needs a lot of clean up.
 
     # "Sing a song" : Alignment Bot and Alignment Bot Ears will "sing" Daisy Belle and the parody response
     request_a_song = ["sing a song", "sing us a song", "sing me a song", "another song", "encore"]
-    bot_permission = ["bot", "daisy", "harry", "your ears", "sudo", "@U01AEC6RQTH".lower(), "@U014XVBDWJC".lower()]
     song_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_song)
     request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
 
@@ -231,18 +234,36 @@ def list_message(**payload):
         sing_a_song(event_data["channel"], event_data["ts"], web_client)
 
     # "Give us another training message" : Alignment Bot will post a random training message
-    request_a_training_message = ["message", "post", "comment", "thread", "chat", " dm ", " pm "]
-    supporting_commands = ["training", "classify", "better", "easier", "another", "different", "new"]
-    bot_permission = ["bot", "daisy", "harry", "your ears", "sudo", "@U01AEC6RQTH".lower(), "@U014XVBDWJC".lower()]
-    training_message_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_training_message)
-    support_given = any(reqStr in event_data["text"].lower() for reqStr in supporting_commands)
+    training_supporting_commands = ["training", "better", "easier", "another", "different", "new"]
+    new_message_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_message)
+    support_given = any(reqStr in event_data["text"].lower() for reqStr in training_supporting_commands)
     request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
 
-    if training_message_requested and support_given and request_acknowledged:
+    if new_message_requested and support_given and request_acknowledged:
         try:
             post_training_request(alignment_bot_training_channel_id)
         except:
             pass
+
+    # "Predict a random message" : Alignment Bot will predict the alignment a random message
+    prediction_supporting_commands = ["classify", "predict", "guess", "classification", "what class", "label"]
+    new_message_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_message)
+    support_given = any(reqStr in event_data["text"].lower() for reqStr in prediction_supporting_commands)
+    request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
+
+    if new_message_requested and support_given and request_acknowledged:
+        predict_post = get_random_post()
+        bot_prediction = "*[ALIGNMENT-PREDICTION]* I believe that the following post is *" +\
+                         predict_message(predict_post)+ "*\n>" + predict_post.replace("\n","\n>") + "\n"
+        send_thread_message(event_data["channel"], event_data["ts"], bot_prediction)
+
+    # "Predict message" : Alignment Bot will make a prediction about a message
+    if "text" in event_data and (event_data["text"].replace("*","").startswith("[PREDICT-MESSAGE]")):
+        post_reaction(event_data["channel"], "robot_face", event_data["ts"])
+        post_reaction(event_data["channel"], "thinking_face", event_data["ts"])
+        send_thread_message(event_data["channel"], event_data["ts"], predict_message(event_data["text"]))
+
+        print("INCOMING MESSAGE: " + event_data["text"])
 
     # "Do you [verb] [subject]?" : Alignment bot will try to answer 4 word do you questions
     if "do you" in event_data["text"].lower() and len(event_data["text"].split()) == 4:
@@ -270,8 +291,12 @@ def define_user_list():
 # Retrieves message history (overwrite) -- would be nice to append new messages instead of overwriting the entire file
 def get_message_archive(archive_bad):
     archive_file_name = "alignment_messages.txt"
+    training_file_name = "training_messages.txt"
+    if os.path.exists(training_file_name):
+        os.remove(training_file_name)
     if os.path.exists(archive_file_name):
         os.remove(archive_file_name)
+
     response = slack_client.conversations_list(
         exclude_archived=archive_bad,
         types="public_channel, private_channel"
@@ -294,19 +319,31 @@ def get_message_archive(archive_bad):
                                           '", "reactions": "' + reaction_string + '"}')
                     print_to_message_file(json_msg + "\n", archive_file_name)
 
+                    if msg["text"].startswith("*[LEARN-SOMETHING]*") or msg["text"].startswith("[LEARN-SOMETHING]"):
+                        print_to_message_file(json_msg + "\n", training_file_name)
+
+
+# Returns a random message from alignment_messages.txt
+def get_random_post():
+    with open("alignment_messages.txt", "r") as file:
+        lines = [line.rstrip() for line in file if "[LEARN-SOMETHING]" not in line and "[BOT-PREDICTION]" not in line
+                 and "[PREDICT-MESSAGE]" not in line]
+
+    random_message_string = random.choice(lines)
+    random_message_string = json.loads(random_message_string, strict=False)
+    random_message = json.loads(random_message_string, strict=False)
+
+    return random_message["msg_body"]
+
 
 # Post a training message to alignment-bot-training
 def post_training_request(request_channel):
     print("I hunger for knowledge. Posting another training message!")
-    random_message_string = random.choice(open("alignment_messages.txt", encoding='utf-8', errors='ignore').readlines())
-    random_message_string = json.loads(random_message_string, strict=False)
-    random_message = json.loads(random_message_string, strict=False)
-
-    send_channel_message(request_channel, "*[LEARN-SOMETHING]* " + random_message["msg_body"], "robot_face")
+    send_channel_message(request_channel, "*[LEARN-SOMETHING]* " + get_random_post(), "robot_face")
 
 
 # Used to create Alignment Bot Testing channel. Should be modified so it can be used to create training channel during
-# installation (the orininal use of this channel)
+# installation (the original use of this function)
 def set_up_testing_channel(channel_name):
     channel_topic = "delet this"
     greeting_message = "Hello! If you've stumbled upon this channel and you are not one of my developers, I should " \
@@ -318,7 +355,7 @@ def set_up_testing_channel(channel_name):
     # Adding users to channel
     slack_client.conversations_invite(
         channel=channel_id,
-        users="U011UEZ0EJ0,U01AEC6RQTH"  # Amanda Panell and Alignment Bot Ears. Hardcoded valies should be removed.
+        users="U011UEZ0EJ0,U01AEC6RQTH"  # Amanda Panell and Alignment Bot Ears. Hardcoded values should be removed.
     )
 
     greeting_ts = send_channel_message(channel_id, greeting_message, "robot_face")
@@ -346,7 +383,7 @@ def get_any_synonym(phrase):
 
 
 # Takes a boolean (tf) and a positive word and returns the negative of that word if tf is false, or returns the word if
-# tf is true. Works fine, not usre if/elif is the best way to do this though.
+# tf is true. Works fine, not sure if/elif is the best way to do this though.
 def bool_translation(tf, like_word):
     if like_word == "yes":
         if not tf:
@@ -458,8 +495,141 @@ def question_do(do_message):
         return "I am not currently capable of answering the question '" + do_message + "'"
 
 
+# Labels training data based on emoji-reactions.
+def prepare_training_data():
+    # Read file, iterate through each message
+    with open('training_messages.txt') as training_file:
+        if os.path.exists("lcn_training_data.csv"):
+            os.remove("lcn_training_data.csv")
+        if os.path.exists("gen_training_data.csv"):
+            os.remove("gen_training_data.csv")
+        for train_msg in training_file:
+            train_msg = json.loads(train_msg, strict=False)
+            train_msg = json.loads(train_msg, strict=False)
+
+            lawful_count = chaotic_count = good_count = evil_count = neutral_count = x_count = reaction_count = 0
+
+            message_text = train_msg["msg_body"].replace(",", "")
+            message_text = message_text.replace("\n", " ")
+            message_text = message_text.replace("*", "")
+            message_text = message_text.replace("[LEARN-SOMETHING]", "")
+            message_text = message_text.replace("[PREDICT-MESSAGE]", "")
+
+            if "reactions" in train_msg:
+                reactions = json.loads("[" + train_msg["reactions"].replace("\'", "\"") + "]")
+
+                for react in reactions:
+                    if react["name"] == "flag-ch":
+                        neutral_count = react["count"]
+                        reaction_count += 1
+                    elif react["name"] == "gavel":
+                        lawful_count = react["count"]
+                        reaction_count += 1
+                    elif react["name"] == "party-parrot-fire":
+                        chaotic_count = react["count"]
+                        reaction_count += 1
+                    elif react["name"] == "innocent":
+                        good_count = react["count"]
+                        reaction_count += 1
+                    elif react["name"] == "evil-kermit":
+                        evil_count = react["count"]
+                        reaction_count += 1
+                    elif react["name"] == "x":
+                        x_count = react["count"]
+
+                if x_count == 0 and reaction_count > 0:
+                    if(neutral_count == 0 and lawful_count == 0 and neutral_count == 0) or\
+                            (neutral_count == 0 and good_count == 0 and evil_count == 0):
+                        neutral_count = 1
+                    lcn_counts = {"lawful": lawful_count, "chaotic": chaotic_count, "neutral": neutral_count}
+                    gen_counts = {"good": good_count, "evil": evil_count, "neutral": neutral_count}
+
+                    lcn_part = str(max(lcn_counts, key=lcn_counts.get))
+                    gen_part = str(max(gen_counts, key=gen_counts.get))
+
+                    print_to_message_file(lcn_part + "," + message_text + "\n", "lcn_training_data.csv")
+                    print_to_message_file(gen_part + "," + message_text + "\n", "gen_training_data.csv")
+
+
+# Prepares an individual message for classification. Heavily relies on the following source:
+# https://medium.com/swlh/text-classification-using-the-bag-of-words-approach-with-nltk-and-scikit-learn-9a731e5c4e2f
+def prepare_message(incoming_text):
+    stemmer = PorterStemmer()
+    spell = Speller(lang="en")
+
+    treated_text = incoming_text.lower()
+    treated_text = re.sub('[^a-z\']', ' ', treated_text).replace("'", "")
+    tokenize_text = wt(treated_text)
+
+    processed_word_list = []
+    for word in tokenize_text:
+        if word not in set(stopwords.words("english")):
+            processed_word_list.append(spell(stemmer.stem(word)))
+
+    finished_text = " ".join(processed_word_list)
+
+    return finished_text
+
+
+# For alignment classification. Creates a bag of words. Heavily relies on the following source:
+# https://medium.com/swlh/text-classification-using-the-bag-of-words-approach-with-nltk-and-scikit-learn-9a731e5c4e2f
+def train_classifier(training_file):
+    global matrix
+    dataset = pandas.read_csv(training_file, encoding='ISO-8859-1')
+    data = []
+    for i in range(dataset.shape[0]):
+        data.append(prepare_message(dataset.iloc[i, 1]))
+
+    matrix = CountVectorizer(ngram_range=(1, 2), max_features=1000)
+    X = matrix.fit_transform(data).toarray()
+    y = dataset.iloc[:, 0]
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y)  # split train and test data
+    # classifier = SVC()
+    classifier = GaussianNB()
+    classifier.fit(X, y)
+    y_pred = classifier.predict(X_test)
+
+    # Accuracy
+    accuracy = accuracy_score(y_test, y_pred)
+    print(accuracy)
+
+    return classifier
+
+
+# Predicts the alignment of a string
+def predict_message(predictable):
+    prepared_message = [prepare_message(predictable)]
+
+    lcn_x = matrix.transform(prepared_message).toarray()
+    gen_x = matrix.transform(prepared_message).toarray()
+
+    alignment = (str(lcn_classifier.predict(lcn_x)[0]) + "-" +
+                 str(gen_classifier.predict(gen_x)[0])).replace("neutral-neutral", "true-neutral")
+    return alignment
+
+
+# "main"
 get_message_archive(False)
 # set_up_testing_channel("alignment-bot-testing")
+
+# Download resources
+try:
+    nltk.data.find("tokenizers/punkt")
+except LookupError:
+    nltk.download("punkt")
+
+try:
+    nltk.data.find("corpora/stopwords")
+except LookupError:
+    nltk.download('stopwords')
+
+# Set up alignment classifier
+matrix = CountVectorizer()
+prepare_training_data()
+lcn_classifier = train_classifier("lcn_training_data.csv")
+gen_classifier = train_classifier("gen_training_data.csv")
+print("Set up complete!")
 
 # Listen for Twitter messages from @rmemes8
 myStreamListener = MyStreamListener()
