@@ -43,23 +43,34 @@ dictionary = PyDictionary.PyDictionary()
 
 # Listen for Twitter messages
 class MyStreamListener(tweepy.StreamListener):
-
     def on_status(self, status):
-        if 'media' in status.entities:
+        accepted_accounts = ['1215745889567821824', '25073877', '22203756', '939091', '30354991', '48762458',
+                             '1176367702543413248', '1204095351944368139', '3761576953', '397791573', '29468585',
+                             '1291024064635523074', '169686021', '1280890750696390661', '1293645380253614081',
+                             '1405634244', '394746333', '736685279025627136']
+
+        if 'media' in status.entities and status.author.id_str == "1215745889567821824":
             print(status)
 
             status_sans_url = re.sub(r"http\S+", "", status.text)
             image_title = re.sub(r'[^a-zA-Z ]', '', status_sans_url.split("submitted by")[0])
             reddit_user_link = requests.get(status.text.split()[-2]).url
 
-            meme_msg = "This meme stolen from @rmemes8, stolen from r/memes, stolen from somewhere else, probably.\n\n"
+            meme_msg = "This meme stolen from @rmemes8, stolen from r/memes, stolen " \
+                       "from somewhere else, probably.\n\n"
             for image in status.entities['media']:
                 # C017CPRMWNT Meme
                 # C01ARV81VMM Test
-                send_photo_post("C017CPRMWNT", meme_msg + status_sans_url + reddit_user_link, image["media_url"],
+                send_photo_post("C017CPRMWNT", meme_msg + status_sans_url + reddit_user_link,
+                                image["media_url"],
                                 "twitter", image_title, slack_user_name)
-        else:
-            print("I saw a tweet come by, but there was no image attached.")
+        elif status.author.id_str in accepted_accounts and status.in_reply_to_status_id is None:
+            print(status)
+            candidate_name, candidate_bio = who_is_who(status.author.id_str)
+            build_msg = "*This tweet sent by " + candidate_name + " (@" + status.user.screen_name + \
+                        ") just now.*\n\n" + status.text
+            message_thread = send_channel_message("C01C6ARUL3D", build_msg, "twitter")
+            send_thread_message("C01C6ARUL3D",message_thread,"\n_" + candidate_name + " is " + candidate_bio + "_")
 
     def on_error(self, status_code):
         print("feelsbadman")
@@ -427,7 +438,8 @@ def bot_ways(category, key_word, supporting_facts, subject2):
     if category == "emotion":
         synonym_found = any(syn in supporting_facts for syn in key_directive_words)
         found_synonym = next((s for x in key_directive_words for s in supporting_facts if x in s), "none")
-        definition = key_word.capitalize() + " is defined by PyDictionary() as " + dictionary.meaning(key_word)["Verb"][0] + ". "
+        definition = key_word.capitalize() + " is defined by PyDictionary() as " + \
+                     dictionary.meaning(key_word)["Verb"][0] + ". "
         emotion_statement = "It is " + get_any_synonym("an emotion") + ". One of the guidelines provided by my " \
                             "developer is '" + guideline1 + "'"
         synonym_explanation = " " + get_any_synonym("however").capitalize() + ", " + key_word + \
@@ -609,6 +621,101 @@ def predict_message(predictable):
     return alignment
 
 
+# Temp function to add 2020 General Election Presidential candidates for Idaho State to Twittter watch list
+def add_2020_idaho_presidential_candidates(twitter_list):
+    # http://gettwitterid.com/
+    twitter_list.append("25073877")  # Donald Trump
+    twitter_list.append("22203756")  # VP: Mike Pence
+    twitter_list.append("939091")  # Joe Biden
+    twitter_list.append("30354991")  # VP: Kamala Harris
+    twitter_list.append("48762458")  # Don Blankenship, VP: William Mohr (could not find Twitter account)
+    twitter_list.append("1176367702543413248")  # Jo Jorgensen
+    twitter_list.append("1204095351944368139")  # VP: Jeremy Cohen
+    twitter_list.append("3761576953")  # Roque De La Fuente, Jr.
+    twitter_list.append("397791573")  # VP: Darcy Richardson, not active
+    twitter_list.append("29468585")  # Brock Pierce
+    twitter_list.append("1291024064635523074")  # VP: Karla Ballard, not verified
+    twitter_list.append("169686021")  # Kanye West
+    twitter_list.append("1280890750696390661")  # VP: Michelle Tidball, Not verified
+    twitter_list.append("1293645380253614081")  # Shawn Howard, Not verified
+    twitter_list.append("1405634244")  # Gloria La Riva
+    twitter_list.append("394746333")  # Vermin Supreme, Not a candidate for 2020 Presidential election
+
+    return twitter_list
+
+
+# Temp function to explain who is who
+def who_is_who(who):
+    candidate_name = ""
+    is_who = ""
+    if who == "25073877":
+        candidate_name = "Donald Trump"
+        is_who = "the current president of the United States. He is the Republican"
+    elif who == "22203756":
+        candidate_name = "Mike Pence"
+        is_who = "the current vice president of the United States. He is the Republican vice"
+    elif who == "939091":
+        candidate_name = "Joe Biden"
+        is_who = "the former vice president of the United States. He is the Democratic"
+    elif who == "30354991":
+        candidate_name = "Kamala Harris"
+        is_who = "a United States senator from California. She is the Democratic vice"
+    elif who == "48762458":
+        candidate_name = "Don Blankenship"
+        is_who = "the former CEO for the Massey Energy Company. He is the Constitution"
+    elif who == "1176367702543413248":
+        candidate_name = "Jo Jorgensen"
+        is_who = "a senior lecturer in Psychology at Clemson University in Clemson, South Carolina. " \
+                 "She is the Libertarian"
+    elif who == "1204095351944368139":
+        candidate_name = "Jeremy \"Spike\" Cohen"
+        is_who = "the host of the podcast \"My Fellow Americans\", and the co-host of the podcast \"The Muddied " \
+                 "Waters of Freedom.\" He is also the co-owner of Muddied Waters Media. He is the Liberarian"
+    elif who == "3761576953":
+        candidate_name = "Rouge \"Rocky\" De La Fuente"
+        is_who = "an American businessman. He is the Reform Party, Alliance Party, and the American Independent Party's"
+    elif who == "397791573":
+        candidate_name = "Darcy Richardson"
+        is_who = "the author of the book \"A Nation Divided: The 1968 Presidential Campaign (2002) and other " \
+                 "political books. He is the Alliance party and Reform Party's\""
+    elif who == "29468585":
+        candidate_name = "Brock Pierce"
+        is_who = "known for his work in the cryptocurrency industry, and is a former child actor. His most well " \
+                 "known roles were as young Gordon in The Mighty Ducks (1992) and it's sequel, and as Luke Davenport " \
+                 "in First Kid (1996). He is an (unaffiliated) independent"
+    elif who == "1291024064635523074":
+        candidate_name = "Karla Ballard"
+        is_who = "the founder and CEO of YING, a \"time banking\" mobile app. This account is unverified. She " \
+                 "(running on the ticket of Brock Pierce) is an (unaffiliated) independent"
+    elif who == "169686021":
+        candidate_name = "Kanye West"
+        is_who = "one of the worlds best-selling music artists, a record producer, and a fashion designer. " \
+                 "He is married to Kim Kardashian West. Idaho is one of only 12 states where he is listed on the " \
+                 "ballot. His is an Independent"
+    elif who == "1280890750696390661":
+        candidate_name = "Michelle Tidball"
+        is_who = "a preacher, life coach, and former mental health therapist. This account is unverified. She " \
+                 "(running on the ticket of Kanye West) is an Independent"
+    elif who == "1293645380253614081":
+        candidate_name = "Shawn Howard"
+        is_who = "a man with \"over 20 years of experience in the financial services industry, having previously " \
+                 "served as Chief Investment Officer for a publicly traded bank\". He is a write-in"
+    elif who == "1405634244":
+        candidate_name = "Gloria La Riva"
+        is_who = "an American socialist activist. She translated Fidel Castro's book \"Cuba at the Crossroads\" into " \
+                 "English and has produced several documentaries. She is a (write-in) Peace and Freedom"
+    elif who == "394746333":
+        candidate_name = "Vermin Supreme"
+        is_who = "a man with a boot on his head. He is not a"
+    elif who == "736685279025627136":
+        candidate_name = "Felicia Burbank"
+        is_who = "a fake name for Amanda Panell's personal Twitter account, which happens to be being used for " \
+                 "testing. If you can read this.... someone is using her account for testing purposes. " \
+                 "Sorry. She is not a"
+
+    return candidate_name, is_who + " presidential nominee for the 2020 election."
+
+
 # "main"
 get_message_archive(False)
 # set_up_testing_channel("alignment-bot-testing")
@@ -632,9 +739,11 @@ gen_classifier = train_classifier("gen_training_data.csv")
 print("Set up complete!")
 
 # Listen for Twitter messages from @rmemes8
+twitter_list = add_2020_idaho_presidential_candidates(["1215745889567821824", "736685279025627136"])  # Temp, only for 2020 General Election
 myStreamListener = MyStreamListener()
 myStream = tweepy.Stream(auth = api.auth, listener=myStreamListener)
-myStream.filter(follow=['1215745889567821824'], is_async=True)
+myStream.filter(follow=twitter_list, is_async=True)  # Temp, only for 2020 General Election
+# myStream.filter(follow="1215745889567821824", is_async=True)
 
 # Listen for slack messages
 rtm_client.start()
