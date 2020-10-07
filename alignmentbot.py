@@ -64,7 +64,7 @@ class MyStreamListener(tweepy.StreamListener):
                 send_photo_post("C017CPRMWNT", meme_msg + status_sans_url + reddit_user_link,
                                 image["media_url"],
                                 "twitter", image_title, slack_user_name)
-        elif status.author.id_str in accepted_accounts:
+        elif status.author.id_str in accepted_accounts and status.in_reply_to_status_id is None:
             print(status)
             candidate_name, candidate_bio = who_is_who(status.author.id_str)
             build_msg = "*This tweet sent by " + candidate_name + " (@" + status.user.screen_name + \
