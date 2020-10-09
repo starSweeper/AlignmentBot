@@ -230,6 +230,34 @@ def delete_message(delete_from_channel_id, timestamp):
     )
 
 
+# Remove soft ban
+def remove_soft_ban(event_data):
+    remove_ban_string = re.sub("[^0-9a-zA-Z-.]+", " ", event_data["text"]).split()
+    user = remove_ban_string[1]
+    channel = remove_ban_string[2]
+    message_ts = event_data["ts"]
+    thread_channel = event_data["channel"]
+    got_em = ""
+
+    with open("soft_ban.txt", "r") as file:
+        lines = [line.rstrip() for line in file if user in line]
+    for line in lines:
+        if channel in re.split(r'\t+', line.rstrip('\t'))[1]:
+            got_em = line
+
+    if got_em == "":
+        return False
+    else:
+        with open("soft_ban.txt", "w") as f:
+            for old_line in lines:
+                if old_line != got_em:
+                    f.write(old_line + "\n")
+        send_thread_message(thread_channel, message_ts, "Okay! Removed <@" + user + ">'s soft ban from <#" +
+                            channel + ">")
+        send_channel_message(user, "Congratulations! You have been unbanned from <#" + channel + "> by <@"
+                             + event_data["user"] + ">!", "")
+
+
 # Check for soft ban
 def user_has_soft_ban(event_data):
     user = event_data["user"]
@@ -262,7 +290,6 @@ def user_has_soft_ban(event_data):
 
         # If ban has passed
         if float(message_ts) >= ban_lift_ts:
-            print("ban has passed")
             # Re-write
             with open("soft_ban.txt", "w") as f:
                 for old_line in lines:
@@ -342,7 +369,16 @@ def list_message(**payload):
 
             print("INCOMING MESSAGE: " + event_data["text"])
 
-        # "Predict message" : Alignment Bot will make a prediction about a message
+        # Remove soft ban
+        if "text" in event_data and (event_data["text"].replace("*", "").startswith("[REMOVE-BAN]")):
+            if event_data["user"] in alignment_bot_developers:
+                post_reaction(event_data["channel"], "suspect", event_data["ts"])
+                remove_soft_ban(event_data)
+            else:
+                post_reaction(event_data["channel"], "nope", event_data["ts"])
+                send_thread_message(event_data["channel"], event_data["ts"], "Sorry, you are not one of my "
+                        "developers. Only Alignment Bot developers have ban removal privileges.")
+        # Add soft ban
         if "text" in event_data and (event_data["text"].replace("*", "").startswith("[SOFT-BAN]")):
             if event_data["user"] in alignment_bot_developers:
                 post_reaction(event_data["channel"], "soviet-hammer-sickle", event_data["ts"])
@@ -847,7 +883,7 @@ twitter_list = add_2020_idaho_presidential_candidates(["1215745889567821824", "7
 myStreamListener = MyStreamListener()
 myStream = tweepy.Stream(auth = api.auth, listener=myStreamListener)
 myStream.filter(follow=twitter_list, is_async=True)  # Temp, only for 2020 General Election
-myStream.filter(follow="1215745889567821824", is_async=True)
+# myStream.filter(follow="1215745889567821824", is_async=True)
 
 # Listen for slack messages
 rtm_client.start()
