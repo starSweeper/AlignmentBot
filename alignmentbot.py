@@ -8,6 +8,7 @@ import random
 import tweepy
 import pandas
 import requests
+import datetime
 import PyDictionary
 from slack import WebClient
 from slack import RTMClient
@@ -22,15 +23,16 @@ from sklearn.naive_bayes import GaussianNB
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import CountVectorizer
 
-
 # loads .env file / environment var's for secret params
 load_dotenv()
 
 # Slack API Set Up
 rtm_client = RTMClient(token=os.environ["rtm_client_token"])
 slack_client = WebClient(os.environ["slack_key"])
+slack_user_client = WebClient(os.environ["slack_user_key"])
 slack_user_name = "Alignment Bot"
 alignment_bot_training_channel_id = os.environ["slack_training_channel"]
+alignment_bot_developers = os.environ["alignment_bot_developers"]
 
 # Twitter API Set Up
 auth = tweepy.OAuthHandler(os.environ["consumer_api_key"], os.environ["consumer_api_secret"])
@@ -219,66 +221,163 @@ def sing_a_song(request_channel, request_ts, ears):
                                                      "songs we could learn to sing?")
 
 
+# Delete a message
+def delete_message(delete_from_channel_id, timestamp):
+    response = slack_user_client.chat_delete(
+        channel=delete_from_channel_id,
+        ts=timestamp,
+        as_user="true"
+    )
+
+
+# Check for soft ban
+def user_has_soft_ban(event_data):
+    user = event_data["user"]
+    channel = event_data["channel"]
+    message_ts = event_data["ts"]
+    message = event_data["text"]
+    is_thread_msg = True if "thread_ts" in event_data else False
+    got_em = ""
+
+    with open("soft_ban.txt", "r") as file:
+        lines = [line.rstrip() for line in file if user in line]
+
+    for line in lines:
+        if channel in re.split(r'\t+', line.rstrip('\t'))[1]:
+            got_em = line
+
+    if got_em == "":
+        return False
+    else:
+        ban_details = got_em.split("\t")
+        ban_channel = ban_details[1]
+        ban_duration = ban_details[2]
+        threads_okay = True if ban_details[3] == "True" else False
+        ban_reason = str(re.findall(r'"([^"]*)"', ban_details[4])[0])
+        ban_lift_ts = float(ban_details[-1])
+        ban_lift_time = datetime.datetime.fromtimestamp(ban_lift_ts).strftime('%A, %x at %I:%M:%S %p %Z')
+
+        if threads_okay and is_thread_msg:
+            return False
+
+        # If ban has passed
+        if float(message_ts) >= ban_lift_ts:
+            print("ban has passed")
+            # Re-write
+            with open("soft_ban.txt", "w") as f:
+                for old_line in lines:
+                    if old_line != got_em:
+                        f.write(old_line + "\n")
+        # If thread message and threads are allowed
+        else:
+            delete_message(channel, message_ts)
+            send_channel_message(user, "Your recent message in <#" + ban_channel + "> was deleted. Your " +
+                                 ban_duration + " hour ban is not over yet. The ban will be lifted on " +
+                                 ban_lift_time + ".\n\nThe reason you were banned is \"" + ban_reason + ".\"\n" +
+                                 ("You are permitted to post in <#" + ban_channel +"> threads." if threads_okay else
+                                 "You are not permitted to post in <#" + ban_channel +"> threads.") +
+                                 "\n\nThe deleted message\n>" + message, "")
+            return True
+
+
+    return False
+
+
 # Called whenever a message is received in a channel Alignment Bot Ears has access to. Needs a lot of clean up
 @RTMClient.run_on(event="message")
 def list_message(**payload):
     event_data = payload["data"]
     web_client = payload['web_client']
 
-    request_a_message = ["message", "post", "comment", "thread", "chat", " dm ", " pm ", " one ", "random"]
-    bot_permission = ["bot", "daisy", "harry", "your ears", "sudo", "@U01AEC6RQTH".lower(), "@U014XVBDWJC".lower()]
+    # Check for soft-ban
+    if os.path.exists("soft_ban.txt") is False or user_has_soft_ban(event_data) is False:
+        request_a_message = ["message", "post", "comment", "thread", "chat", " dm ", " pm ", " one ", "random"]
+        bot_permission = ["bot", "daisy", "harry", "your ears", "sudo", "@U01AEC6RQTH".lower(), "@U014XVBDWJC".lower()]
 
-    if "text" in event_data and (event_data["text"].replace("*","").startswith("[LEARN-SOMETHING]")):
-        post_reaction(event_data["channel"], "robot_face", event_data["ts"])
-        post_reaction(event_data["channel"], "thankyou", event_data["ts"])
+        if "text" in event_data and (event_data["text"].replace("*", "").startswith("[LEARN-SOMETHING]")):
+            post_reaction(event_data["channel"], "robot_face", event_data["ts"])
+            post_reaction(event_data["channel"], "thankyou", event_data["ts"])
 
-        print("INCOMING MESSAGE: " + event_data["text"])
+            print("INCOMING MESSAGE: " + event_data["text"])
 
-    # Quirks -- This area needs a lot of clean up.
+        # Quirks -- This area needs a lot of clean up.
 
-    # "Sing a song" : Alignment Bot and Alignment Bot Ears will "sing" Daisy Belle and the parody response
-    request_a_song = ["sing a song", "sing us a song", "sing me a song", "another song", "encore"]
-    song_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_song)
-    request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
+        # "Sing a song" : Alignment Bot and Alignment Bot Ears will "sing" Daisy Belle and the parody response
+        request_a_song = ["sing a song", "sing us a song", "sing me a song", "another song", "encore"]
+        song_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_song)
+        request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
 
-    if song_requested and request_acknowledged:
-        sing_a_song(event_data["channel"], event_data["ts"], web_client)
+        if song_requested and request_acknowledged:
+            sing_a_song(event_data["channel"], event_data["ts"], web_client)
 
-    # "Give us another training message" : Alignment Bot will post a random training message
-    training_supporting_commands = ["training", "better", "easier", "another", "different", "new"]
-    new_message_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_message)
-    support_given = any(reqStr in event_data["text"].lower() for reqStr in training_supporting_commands)
-    request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
+        # "Give us another training message" : Alignment Bot will post a random training message
+        training_supporting_commands = ["training", "better", "easier", "another", "different", "new"]
+        new_message_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_message)
+        support_given = any(reqStr in event_data["text"].lower() for reqStr in training_supporting_commands)
+        request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
 
-    if new_message_requested and support_given and request_acknowledged:
-        try:
-            post_training_request(alignment_bot_training_channel_id)
-        except:
-            pass
+        if new_message_requested and support_given and request_acknowledged:
+            try:
+                post_training_request(alignment_bot_training_channel_id)
+            except:
+                pass
 
-    # "Predict a random message" : Alignment Bot will predict the alignment a random message
-    prediction_supporting_commands = ["classify", "predict", "guess", "classification", "what class", "label"]
-    new_message_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_message)
-    support_given = any(reqStr in event_data["text"].lower() for reqStr in prediction_supporting_commands)
-    request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
+        # "Predict a random message" : Alignment Bot will predict the alignment a random message
+        prediction_supporting_commands = ["classify", "predict", "guess", "classification", "what class", "label"]
+        new_message_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_message)
+        support_given = any(reqStr in event_data["text"].lower() for reqStr in prediction_supporting_commands)
+        request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
 
-    if new_message_requested and support_given and request_acknowledged:
-        predict_post = get_random_post()
-        bot_prediction = "*[ALIGNMENT-PREDICTION]* I believe that the following post is *" +\
-                         predict_message(predict_post)+ "*\n>" + predict_post.replace("\n","\n>") + "\n"
-        send_thread_message(event_data["channel"], event_data["ts"], bot_prediction)
+        if new_message_requested and support_given and request_acknowledged:
+            predict_post = get_random_post()
+            bot_prediction = "*[ALIGNMENT-PREDICTION]* I believe that the following post is *" + \
+                             predict_message(predict_post) + "*\n>" + predict_post.replace("\n", "\n>") + "\n"
+            send_thread_message(event_data["channel"], event_data["ts"], bot_prediction)
 
-    # "Predict message" : Alignment Bot will make a prediction about a message
-    if "text" in event_data and (event_data["text"].replace("*","").startswith("[PREDICT-MESSAGE]")):
-        post_reaction(event_data["channel"], "robot_face", event_data["ts"])
-        post_reaction(event_data["channel"], "thinking_face", event_data["ts"])
-        send_thread_message(event_data["channel"], event_data["ts"], predict_message(event_data["text"]))
+        # "Predict message" : Alignment Bot will make a prediction about a message
+        if "text" in event_data and (event_data["text"].replace("*", "").startswith("[PREDICT-MESSAGE]")):
+            post_reaction(event_data["channel"], "robot_face", event_data["ts"])
+            post_reaction(event_data["channel"], "thinking_face", event_data["ts"])
+            send_thread_message(event_data["channel"], event_data["ts"], predict_message(event_data["text"]))
 
-        print("INCOMING MESSAGE: " + event_data["text"])
+            print("INCOMING MESSAGE: " + event_data["text"])
 
-    # "Do you [verb] [subject]?" : Alignment bot will try to answer 4 word do you questions
-    if "do you" in event_data["text"].lower() and len(event_data["text"].split()) == 4:
-        send_thread_message("C01ARV81VMM", event_data["ts"], question_do(event_data["text"]))
+        # "Predict message" : Alignment Bot will make a prediction about a message
+        if "text" in event_data and (event_data["text"].replace("*", "").startswith("[SOFT-BAN]")):
+            if event_data["user"] in alignment_bot_developers:
+                post_reaction(event_data["channel"], "soviet-hammer-sickle", event_data["ts"])
+                ban_msg = re.sub("[^0-9a-zA-Z-.]+", " ", event_data["text"]).split()
+                ban_reason = str(re.findall(r'"([^"]*)"', event_data["text"])[0])
+                ban_user = str(ban_msg[1])
+                ban_channel = str(ban_msg[2])
+                ban_duration = str(ban_msg[4])
+                ban_lift_ts = (float(event_data["ts"]) + (3600 * float(ban_duration)))
+                # https://strftime.org/ for datetime formatting
+                ban_lift_time = datetime.datetime.fromtimestamp(ban_lift_ts).strftime('%A, %x at %I:%M:%S %p %Z')
+                threads_okay = True if ban_msg[5] == "threads-okay" else False
+                ban_file_entry = ban_user + "\t" + ban_channel + "\t" + ban_duration + "\t" + str(
+                    threads_okay) + "\t\"" + ban_reason + "\"\t" + str(ban_lift_ts) + "\n"
+                print_to_message_file(ban_file_entry, "soft_ban.txt")
+                send_thread_message(event_data["channel"], event_data["ts"], "Okay. <@" + ban_user +
+                                    "> has been banned from <#" + ban_channel + "> for " + ban_duration +
+                                    " hour(s).\n\n" + ("They will still be permitted to post in " +
+                                    "threads." if threads_okay else "They will not be permitted " +
+                                    "to post in threads.") + "\n The ban will be lifted on " + str(ban_lift_time) + ".")
+                send_channel_message(ban_user, ("You have been banned from posting in <#" + ban_channel + ">  for " +
+                                     ban_duration + " hour(s) by <@" + event_data["user"] + ">. "
+                                     "The reason listed for the ban was \"" + ban_reason + "\".\n\n" + ("You will "
+                                     "still be permitted to post in threads." if threads_okay else "You will not be "
+                                     "permitted to post in threads.") + "\n The ban will be lifted on " +
+                                     str(ban_lift_time)),"")
+            else:
+                post_reaction(event_data["channel"], "nope", event_data["ts"])
+                send_thread_message(event_data["channel"], event_data["ts"], "Sorry, you are not one of my developers."
+                                    " Only Alignment Bot developers have ban privileges.")
+            print("INCOMING MESSAGE: " + event_data["text"])
+
+        # "Do you [verb] [subject]?" : Alignment bot will try to answer 4 word do you questions
+        if "do you" in event_data["text"].lower() and len(event_data["text"].split()) == 4:
+            send_thread_message("C01ARV81VMM", event_data["ts"], question_do(event_data["text"]))
 
 
 # Prints messages to file (append)
@@ -297,6 +396,8 @@ def print_to_message_file(message, print_file_name):
 # Retrieves user information -- I don't remember making this, or why.
 def define_user_list():
     response = slack_client.users_list()
+    for member in response["members"]:
+        print(member["name"] + " " + member["id"] + " " + member["real_name"])
 
 
 # Retrieves message history (overwrite) -- would be nice to append new messages instead of overwriting the entire file
@@ -316,6 +417,10 @@ def get_message_archive(archive_bad):
     for x in response["channels"]:
         if x["is_archived"] is not True:
             slack_client.conversations_join(channel=x["id"])
+            try:
+                slack_client.conversations_invite(channel=x["id"],users="U01AEC6RQTH")
+            except:
+                pass
             conversation_history_response = slack_client.conversations_history(channel=x["id"])
 
             for msg in conversation_history_response["messages"]:
@@ -421,7 +526,6 @@ def identify_group_member(member_string):
                                    "@U01AEC6RQTH".lower(), "@U014XVBDWJC".lower(), "me", "you"]:
         return True
     response = slack_client.users_list()
-    print(response)
     return False
 
 
@@ -665,19 +769,19 @@ def who_is_who(who):
         is_who = "the former CEO for the Massey Energy Company. He is the Constitution"
     elif who == "1176367702543413248":
         candidate_name = "Jo Jorgensen"
-        is_who = "a senior lecturer in Psychology at Clemson University in Clemson, South Carolina. " \
+        is_who = "a senior lecturer of Psychology at Clemson University in Clemson, South Carolina. " \
                  "She is the Libertarian"
     elif who == "1204095351944368139":
         candidate_name = "Jeremy \"Spike\" Cohen"
         is_who = "the host of the podcast \"My Fellow Americans\", and the co-host of the podcast \"The Muddied " \
-                 "Waters of Freedom.\" He is also the co-owner of Muddied Waters Media. He is the Liberarian"
+                 "Waters of Freedom.\" He is also the co-owner of Muddied Waters Media. He is the Libertarian vice"
     elif who == "3761576953":
         candidate_name = "Rouge \"Rocky\" De La Fuente"
         is_who = "an American businessman. He is the Reform Party, Alliance Party, and the American Independent Party's"
     elif who == "397791573":
         candidate_name = "Darcy Richardson"
         is_who = "the author of the book \"A Nation Divided: The 1968 Presidential Campaign (2002) and other " \
-                 "political books. He is the Alliance party and Reform Party's\""
+                 "political books. He is the Alliance party and Reform Party's vice\""
     elif who == "29468585":
         candidate_name = "Brock Pierce"
         is_who = "known for his work in the cryptocurrency industry, and is a former child actor. His most well " \
@@ -686,7 +790,7 @@ def who_is_who(who):
     elif who == "1291024064635523074":
         candidate_name = "Karla Ballard"
         is_who = "the founder and CEO of YING, a \"time banking\" mobile app. This account is unverified. She " \
-                 "(running on the ticket of Brock Pierce) is an (unaffiliated) independent"
+                 "(running on the ticket of Brock Pierce) is an (unaffiliated) independent vice"
     elif who == "169686021":
         candidate_name = "Kanye West"
         is_who = "one of the worlds best-selling music artists, a record producer, and a fashion designer. " \
@@ -695,7 +799,7 @@ def who_is_who(who):
     elif who == "1280890750696390661":
         candidate_name = "Michelle Tidball"
         is_who = "a preacher, life coach, and former mental health therapist. This account is unverified. She " \
-                 "(running on the ticket of Kanye West) is an Independent"
+                 "(running on the ticket of Kanye West) is an Independent vice"
     elif who == "1293645380253614081":
         candidate_name = "Shawn Howard"
         is_who = "a man with \"over 20 years of experience in the financial services industry, having previously " \
@@ -743,7 +847,7 @@ twitter_list = add_2020_idaho_presidential_candidates(["1215745889567821824", "7
 myStreamListener = MyStreamListener()
 myStream = tweepy.Stream(auth = api.auth, listener=myStreamListener)
 myStream.filter(follow=twitter_list, is_async=True)  # Temp, only for 2020 General Election
-# myStream.filter(follow="1215745889567821824", is_async=True)
+myStream.filter(follow="1215745889567821824", is_async=True)
 
 # Listen for slack messages
 rtm_client.start()
