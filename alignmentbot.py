@@ -41,6 +41,7 @@ api = tweepy.API(auth)
 
 # Misc Set Up
 dictionary = PyDictionary.PyDictionary()
+version_number = "3.1.2"  # Manually update this before submitting PR
 
 
 # Listen for Twitter messages
@@ -524,26 +525,12 @@ def get_any_synonym(phrase):
     return str(random.choice(suitable_replacements))
 
 
-# Takes a boolean (tf) and a positive word and returns the negative of that word if tf is false, or returns the word if
-# tf is true. Works fine, not sure if/elif is the best way to do this though.
-def bool_translation(tf, like_word):
-    if like_word == "yes":
-        if not tf:
-            return "no"
-    elif like_word == "am":
-        if not tf:
-            return "am not"
-    elif like_word == "do":
-        if not tf:
-            return "do not"
-    elif like_word == "does":
-        if not tf:
-            return "does not"
-    elif like_word == "is":
-        if not tf:
-            return "is not"
-
-    return like_word
+# Takes a boolean (tf) and two phrases. If tf is true returns true_phrase, and returns fase_phrase if tf is false.
+# For sentences that depend on booleans.
+def bool_translation(tf, true_phrase, false_phrase):
+    if tf:
+        return true_phrase
+    return false_phrase
 
 
 # This was a mistake.
@@ -577,15 +564,15 @@ def bot_ways(category, key_word, supporting_facts, subject2):
                               "Another guideline provided by my developer states that '" + guideline2 + \
                               "' The word " + key_word + ", according to my understanding of the word, " \
                               "fits that guideline because of it's synonym " + found_synonym + ". "
-        subject2_statement = subject2 + " " + bool_translation(identify_group_member(subject2), "is") + " a member " \
+        subject2_statement = subject2 + " " + bool_translation(identify_group_member(subject2), "is", "is not") + " a member " \
                              "of Super-Secret-Freind-Group. The guideline " + \
-                             bool_translation(identify_group_member(subject2), "does") + " apply here. "
+                             bool_translation(identify_group_member(subject2), "does", "does not") + " apply here. "
         synonym_negation = " There is no synonym for " + key_word + " that can be used to " \
                            "describe my behavior in a way that is " + get_any_synonym("consistent") + " with that " \
                            "guideline. "
-        short_statement = "In short, " + bool_translation(synonym_found, "yes") + " I " + \
-                          bool_translation(synonym_found, "do") + " " + key_word + " " + subject2 + ". I " + \
-                          bool_translation(synonym_found, "am") + " programmed to " + key_word + " " + subject2 + ". "
+        short_statement = "In short, " + bool_translation(synonym_found, "yes", "no") + " I " + \
+                          bool_translation(synonym_found, "do", "do not") + " " + key_word + " " + subject2 + ". I " + \
+                          bool_translation(synonym_found, "am", "am not") + " programmed to " + key_word + " " + subject2 + ". "
 
         synonym_explanation += subject2_statement
         response_message = definition + emotion_statement + \
@@ -621,8 +608,9 @@ def question_do(do_message):
 
     print(do_message)
     if do_message.lower() in ["do you hear me?","do you read me?"]:
-        return "I am functioning within normal parameters. Actually, I do not know. " \
-               "That might be a lie. Twitter might be down. Who knows? Not me. But I might in the future."
+        return "I have received your message. I seem to be operating within expected parameters. I am currently " \
+               "running AlignmentBot " + version_number + ". The Twitter stream " + \
+               bool_translation(myStream.running, "is running :)", "is not running though :feelsbadman:")
     elif len(do_message_array) == 4 and do_message_array[0] == "do" and do_message_array[1] == "you" \
             and is_verb(do_message_array[2]) and (do_message_array[3][:-1] in proper_subjects or
             identify_group_member(do_message_array[3][:-1])) and do_message_array[3][-1:] == "?":
@@ -776,13 +764,14 @@ prepare_training_data()
 lcn_classifier = train_classifier("lcn_training_data.csv")
 gen_classifier = train_classifier("gen_training_data.csv")
 print("Set up complete!")
+send_channel_message("C01ARV81VMM","Set up complete! Running AlignmentBot v." + version_number,"tada")
 
-# Listen for Twitter messages from @rmemes8
+# Listen for Twitter messages
 twitter_list = ["1215745889567821824", "736685279025627136"]  # @rmemes8, @mountianeeress
 myStreamListener = MyStreamListener()
 myStream = tweepy.Stream(auth = api.auth, listener=myStreamListener)
+
 myStream.filter(follow=twitter_list, is_async=True)
-# myStream.filter(follow="1215745889567821824", is_async=True)
 
 # Listen for slack messages
 rtm_client.start()
