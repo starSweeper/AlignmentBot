@@ -257,10 +257,10 @@ def user_has_soft_ban(event_data):
     is_thread_msg = True if "thread_ts" in event_data else False
     got_em = ""
 
-    with open("soft_ban.txt") as file:
+    with open("soft_ban.txt", "r") as file:
         lines = [line.rstrip() for line in file if user in line]
 
-    for line in file:
+    for line in lines:
         if channel in re.split(r'\t+', line.rstrip('\t'))[1]:
             got_em = line
 
@@ -458,6 +458,15 @@ def get_message_archive(archive_bad):
             for msg in conversation_history_response["messages"]:
                 print_to_message_file(re.sub("[^0-9a-zA-Z-.]+", " ", msg["text"].replace("RT @rmemes8:", "")) + "\n",
                                       meme_file_name)
+
+            if x["is_archived"] is not True:
+                slack_client.conversations_join(channel=x["id"])
+                try:
+                    slack_client.conversations_invite(channel=x["id"], users="U01AEC6RQTH")
+                except:
+                    pass
+                conversation_history_response = slack_client.conversations_history(channel=x["id"])
+                
             for msg in conversation_history_response["messages"]:
                 if (msg["type"] == "message") and msg["text"] != '' and "subtype" not in msg \
                         and "https://" not in msg["text"]: # temporary fix-- prevent link only posts from being used for training
