@@ -41,7 +41,7 @@ api = tweepy.API(auth)
 
 # Misc Set Up
 dictionary = PyDictionary.PyDictionary()
-version_number = "3.1.2"  # Manually update this before submitting PR
+version_number = "3.2.0TEST"  # Manually update this before submitting PR
 
 
 # Listen for Twitter messages
@@ -49,8 +49,6 @@ class MyStreamListener(tweepy.StreamListener):
     def on_status(self, status):
 
         if 'media' in status.entities:
-            print(status)
-
             status_sans_url = re.sub(r"http\S+", "", status.text)
             image_title = re.sub(r'[^a-zA-Z ]', '', status_sans_url.split("submitted by")[0])
             reddit_user_link = requests.get(status.text.split()[-2]).url
@@ -60,9 +58,10 @@ class MyStreamListener(tweepy.StreamListener):
             for image in status.entities['media']:
                 # C017CPRMWNT Meme
                 # C01ARV81VMM Test
-                send_photo_post("C017CPRMWNT", meme_msg + status_sans_url + reddit_user_link,
-                                image["media_url"],
-                                "twitter", image_title, slack_user_name)
+                meme_post_text = meme_msg + status_sans_url + reddit_user_link
+                if meme_is_new(re.sub("[^0-9a-zA-Z-.]+", " ", meme_post_text.replace("RT @rmemes8:", ""))):
+                    send_photo_post("C017CPRMWNT", meme_post_text, image["media_url"],"twitter",
+                                image_title, slack_user_name)
 
 
     def on_error(self, status_code):
@@ -258,10 +257,10 @@ def user_has_soft_ban(event_data):
     is_thread_msg = True if "thread_ts" in event_data else False
     got_em = ""
 
-    with open("soft_ban.txt", "r") as file:
+    with open("soft_ban.txt") as file:
         lines = [line.rstrip() for line in file if user in line]
 
-    for line in lines:
+    for line in file:
         if channel in re.split(r'\t+', line.rstrip('\t'))[1]:
             got_em = line
 
@@ -427,14 +426,26 @@ def define_user_list():
         print(member["name"] + " " + member["id"] + " " + member["real_name"])
 
 
+def meme_is_new(text):
+    with open("memes_lol.txt", "r") as memes:
+        for line in memes:
+            if text.strip() == line.strip():
+                return False
+
+    return True
+
+
 # Retrieves message history (overwrite) -- would be nice to append new messages instead of overwriting the entire file
 def get_message_archive(archive_bad):
     archive_file_name = "alignment_messages.txt"
     training_file_name = "training_messages.txt"
+    meme_file_name = "memes_lol.txt"
     if os.path.exists(training_file_name):
         os.remove(training_file_name)
     if os.path.exists(archive_file_name):
         os.remove(archive_file_name)
+    if os.path.exists(meme_file_name):
+        os.remove(meme_file_name)
 
     response = slack_client.conversations_list(
         exclude_archived=archive_bad,
@@ -442,14 +453,11 @@ def get_message_archive(archive_bad):
     )
 
     for x in response["channels"]:
-        if x["is_archived"] is not True:
-            slack_client.conversations_join(channel=x["id"])
-            try:
-                slack_client.conversations_invite(channel=x["id"],users="U01AEC6RQTH")
-            except:
-                pass
-            conversation_history_response = slack_client.conversations_history(channel=x["id"])
-
+        if x["id"] == "C017CPRMWNT":
+            conversation_history_response = slack_client.conversations_history(channel="C017CPRMWNT")
+            for msg in conversation_history_response["messages"]:
+                print_to_message_file(re.sub("[^0-9a-zA-Z-.]+", " ", msg["text"].replace("RT @rmemes8:", "")) + "\n",
+                                      meme_file_name)
             for msg in conversation_history_response["messages"]:
                 if (msg["type"] == "message") and msg["text"] != '' and "subtype" not in msg \
                         and "https://" not in msg["text"]: # temporary fix-- prevent link only posts from being used for training
@@ -764,7 +772,7 @@ prepare_training_data()
 lcn_classifier = train_classifier("lcn_training_data.csv")
 gen_classifier = train_classifier("gen_training_data.csv")
 print("Set up complete!")
-send_channel_message("C01ARV81VMM","Set up complete! Running AlignmentBot v." + version_number,"tada")
+send_channel_message("C01ARV81VMM", "Set up complete! Running AlignmentBot v." + version_number, "tada")
 
 # Listen for Twitter messages
 twitter_list = ["1215745889567821824", "736685279025627136"]  # @rmemes8, @mountianeeress
