@@ -41,7 +41,7 @@ api = tweepy.API(auth)
 
 # Misc Set Up
 dictionary = PyDictionary.PyDictionary()
-version_number = "3.2.0TEST"  # Manually update this before submitting PR
+version_number = "3.2.0"  # Manually update this before submitting PR
 
 
 # Listen for Twitter messages
@@ -459,14 +459,14 @@ def get_message_archive(archive_bad):
                 print_to_message_file(re.sub("[^0-9a-zA-Z-.]+", " ", msg["text"].replace("RT @rmemes8:", "")) + "\n",
                                       meme_file_name)
 
-            if x["is_archived"] is not True:
-                slack_client.conversations_join(channel=x["id"])
-                try:
-                    slack_client.conversations_invite(channel=x["id"], users="U01AEC6RQTH")
-                except:
-                    pass
-                conversation_history_response = slack_client.conversations_history(channel=x["id"])
-                
+        if x["is_archived"] is not True:
+            slack_client.conversations_join(channel=x["id"])
+            try:
+                slack_client.conversations_invite(channel=x["id"], users="U01AEC6RQTH")
+            except:
+                pass
+            conversation_history_response = slack_client.conversations_history(channel=x["id"])
+
             for msg in conversation_history_response["messages"]:
                 if (msg["type"] == "message") and msg["text"] != '' and "subtype" not in msg \
                         and "https://" not in msg["text"]: # temporary fix-- prevent link only posts from being used for training
