@@ -41,7 +41,7 @@ api = tweepy.API(auth)
 
 # Misc Set Up
 dictionary = PyDictionary.PyDictionary()
-version_number = "3.2.0"  # Manually update this before submitting PR
+version_number = "3.2.1"  # Manually update this before submitting PR
 
 
 # Listen for Twitter messages
@@ -427,6 +427,22 @@ def define_user_list():
 
 
 def meme_is_new(text):
+    meme_file_name = "memes_lol.txt"
+    if os.path.exists(meme_file_name):
+
+        response = slack_client.conversations_list(
+            exclude_archived=False,
+            types="public_channel, private_channel"
+        )
+
+        for x in response["channels"]:
+            if x["id"] == "C017CPRMWNT":
+                conversation_history_response = slack_client.conversations_history(channel="C017CPRMWNT")
+                for msg in conversation_history_response["messages"]:
+                    print_to_message_file(
+                        re.sub("[^0-9a-zA-Z-.]+", " ", msg["text"].replace("RT @rmemes8:", "")) + "\n",
+                        meme_file_name)
+
     with open("memes_lol.txt", "r") as memes:
         for line in memes:
             if text.strip() == line.strip():
@@ -439,13 +455,11 @@ def meme_is_new(text):
 def get_message_archive(archive_bad):
     archive_file_name = "alignment_messages.txt"
     training_file_name = "training_messages.txt"
-    meme_file_name = "memes_lol.txt"
+
     if os.path.exists(training_file_name):
         os.remove(training_file_name)
     if os.path.exists(archive_file_name):
         os.remove(archive_file_name)
-    if os.path.exists(meme_file_name):
-        os.remove(meme_file_name)
 
     response = slack_client.conversations_list(
         exclude_archived=archive_bad,
@@ -453,12 +467,6 @@ def get_message_archive(archive_bad):
     )
 
     for x in response["channels"]:
-        if x["id"] == "C017CPRMWNT":
-            conversation_history_response = slack_client.conversations_history(channel="C017CPRMWNT")
-            for msg in conversation_history_response["messages"]:
-                print_to_message_file(re.sub("[^0-9a-zA-Z-.]+", " ", msg["text"].replace("RT @rmemes8:", "")) + "\n",
-                                      meme_file_name)
-
         if x["is_archived"] is not True:
             slack_client.conversations_join(channel=x["id"])
             try:
