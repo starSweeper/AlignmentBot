@@ -41,7 +41,7 @@ api = tweepy.API(auth)
 
 # Misc Set Up
 dictionary = PyDictionary.PyDictionary()
-version_number = "3.2.1"  # Manually update this before submitting PR
+version_number = "4.0.1"  # Manually update this before submitting PR
 
 
 # Listen for Twitter messages
@@ -60,15 +60,62 @@ class MyStreamListener(tweepy.StreamListener):
                 # C01ARV81VMM Test
                 meme_post_text = meme_msg + status_sans_url + reddit_user_link
                 if meme_is_new(re.sub("[^0-9a-zA-Z-.]+", " ", meme_post_text.replace("RT @rmemes8:", ""))):
-                    send_photo_post("C017CPRMWNT", meme_post_text, image["media_url"],"twitter",
+                    send_photo_post("C017CPRMWNT", meme_post_text, image["media_url"], "twitter",
                                 image_title, slack_user_name)
-
 
     def on_error(self, status_code):
         print("feelsbadman")
         print(status_code)
         if status_code == 420:
             return False
+
+
+class Poll:
+    def __init__(self, is_anon, channel, duration, multi_vote, message, valid_votes, user):
+        self.is_anon = is_anon
+        self.channel = channel
+        self.duration = duration
+        self.multi_vote = multi_vote
+        self.message = message
+        self.valid_votes = valid_votes
+        self.user = user
+        self.post_ts = ''
+        self.poll_end_date = ''
+
+    def set_post_ts(self, post_ts):
+        self.post_ts = post_ts
+
+    def set_poll_end_date(self):
+        self.poll_end_date = ''  # TODO
+
+    # Create and post message announcing poll and the rules for it
+    def post_poll(self):
+        poll_message = "Poll created by <@" + self.user + ">, you may " + ("not " if self.multi_vote else "") + \
+                       "vote for multiple options. This poll is " + ("not " if self.is_anon else "") + \
+                       "anonymous!\n\n>" + self.message + "\n\n"
+
+        for vote in self.valid_votes:
+            poll_message += "- To vote for " + vote + ", react with :" + self.valid_votes.get(vote) + ":\n"
+
+        poll_message += "Poll closes at " + self.poll_end_date + "."
+
+        send_channel_message(self.channel, poll_message, '')
+
+    def write_poll_to_file(self):
+        # convert to JSON
+        # save to file
+        print("hi")
+
+    def end_poll(self, message):
+        #post message (poll results or cancelation message)
+        send_channel_message(self.channel, message, '')
+        #remove poll from txt file
+        print("hi")
+
+    # Create message for posting poll results
+    def create_results(self):
+        results = ''
+        return results
 
 
 # Post an image to a channel (using image url)
@@ -168,47 +215,6 @@ def send_channel_message(send_to_channel_id, message, reaction):
         post_reaction(send_to_channel_id, reaction, timestamp)
 
     return timestamp
-
-
-# Alignment Bot and Alignment Bot Ears Sing a Song. Should be modified to read lyrics from a file so that multiple
-# songs can be learned. The Bot user IDs are hardcoded here, and we should avoid that.
-def sing_a_song(request_channel, request_ts, ears):
-    print("Quirk activated! Singing Daisy Belle!")
-    send_thread_message(request_channel, request_ts, "How about a duet? I had a question I'd been meaning to ask "
-                                                     "<@U01AEC6RQTH> anyway, and I do believe that my request can be "
-                                                     "set to music (if you imagine there is music that is, which "
-                                                     "she isn't capable of, but you might enjoy it anyways.)")
-    time.sleep(5)
-    react_to = send_thread_message(request_channel, request_ts, "Daisy, Daisy")
-    ears_post_reaction(request_channel, "ear", react_to, ears)
-    time.sleep(1)
-    send_thread_message(request_channel, request_ts, "Give me your answer true")
-    time.sleep(1)
-    react_to = send_thread_message(request_channel, request_ts, "I'm half crazy all for the love of you!")
-    ears_post_reaction(request_channel, "heart", react_to, ears)
-    time.sleep(1)
-    send_thread_message(request_channel, request_ts, "It wont be a stylish marriage-- I can't afford a carriage")
-    time.sleep(2)
-    send_thread_message(request_channel, request_ts, "But you'll look sweet upon the seat of a bicycle built for two!")
-
-    time.sleep(3)
-    react_to = ears_send_thread_message(request_channel, request_ts, "Harry, Harry", ears)
-    post_reaction(request_channel, "eyes", react_to)
-    time.sleep(1)
-    ears_send_thread_message(request_channel, request_ts, "Here is my answer true", ears)
-    time.sleep(1)
-    react_to = ears_send_thread_message(request_channel, request_ts,
-                                        "You're half crazy if you think that that will do!", ears)
-    post_reaction(request_channel, "feelsbadman", react_to)
-    time.sleep(1)
-    ears_send_thread_message(request_channel, request_ts, "If you can't afford a carriage, "
-                                                          "there won't be any marriage", ears)
-    time.sleep(2)
-    ears_send_thread_message(request_channel, request_ts, "'Cause I'll be switched if I'll get hitched on a "
-                                                          "bicycle built for two!", ears)
-    time.sleep(4)
-    send_thread_message(request_channel, request_ts, "How did you like our performance? Any suggestions for other "
-                                                     "songs we could learn to sing?")
 
 
 # Delete a message
@@ -317,15 +323,7 @@ def list_message(**payload):
 
             print("INCOMING MESSAGE: " + event_data["text"])
 
-        # Quirks -- This area needs a lot of clean up.
-
-        # "Sing a song" : Alignment Bot and Alignment Bot Ears will "sing" Daisy Belle and the parody response
-        request_a_song = ["sing a song", "sing us a song", "sing me a song", "another song", "encore"]
-        song_requested = any(reqStr in event_data["text"].lower() for reqStr in request_a_song)
-        request_acknowledged = any(botPrm in event_data["text"].lower() for botPrm in bot_permission)
-
-        if song_requested and request_acknowledged:
-            sing_a_song(event_data["channel"], event_data["ts"], web_client)
+        # Quirks
 
         # "Give us another training message" : Alignment Bot will post a random training message
         training_supporting_commands = ["training", "better", "easier", "another", "different", "new"]
@@ -632,7 +630,7 @@ def question_do(do_message):
     proper_subjects = ["me", "us", "yourself"]
 
     print(do_message)
-    if do_message.lower() in ["do you hear me?","do you read me?"]:
+    if do_message.lower() in ["do you hear me?", "do you read me?"]:
         return "I have received your message. I seem to be operating within expected parameters. I am currently " \
                "running AlignmentBot " + version_number + ". The Twitter stream " + \
                bool_translation(myStream.running, "is running :)", "is not running though :feelsbadman:")
@@ -766,6 +764,23 @@ def predict_message(predictable):
     alignment = (str(lcn_classifier.predict(lcn_x)[0]) + "-" +
                  str(gen_classifier.predict(gen_x)[0])).replace("neutral-neutral", "true-neutral")
     return alignment
+
+
+# Add a new poll
+def add_poll(event_data):
+    # Parse data
+    poll_command_str = re.sub("[^0-9a-zA-Z-.]+", " ", event_data["text"]).split()
+
+    is_anon = 'ANON' in poll_command_str[0]  # will be [POLL] or [ANON-POLL]
+    channel = poll_command_str[1]
+    duration = poll_command_str[2]
+    multi_vote = poll_command_str[4]  # will be True or False
+    message = poll_command_str[5]
+    valid_votes = poll_command_str[3]
+
+    new_poll = Poll(is_anon, channel, duration, multi_vote, message, valid_votes)  # Create new Poll object
+    new_poll.write_poll_to_file()  # Save to txt
+    new_poll.post_poll()  # Post poll message
 
 
 # "main"
