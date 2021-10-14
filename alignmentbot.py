@@ -357,6 +357,11 @@ def list_message(**payload):
 
             print("INCOMING MESSAGE: " + event_data["text"])
 
+        # polls (in development)
+        if "text" in event_data and (event_data["text"].replace("*", "").startswith("[POLL]") or
+                                     event_data["text"].replace("*", "").startswith("[ANON-POLL]")):
+            add_poll(event_data)
+
         # Remove soft ban
         if "text" in event_data and (event_data["text"].replace("*", "").startswith("[REMOVE-BAN]")):
             if event_data["user"] in alignment_bot_developers:
@@ -778,7 +783,19 @@ def add_poll(event_data):
     message = poll_command_str[5]
     valid_votes = poll_command_str[3]
 
-    new_poll = Poll(is_anon, channel, duration, multi_vote, message, valid_votes)  # Create new Poll object
+    #for testing
+    test_message = poll_command_str + "\n\n" + \
+        "\nis_anon = " + str(is_anon) +\
+        "\nchannel = " + str(channel) +\
+        "\nduration = " + str(duration) +\
+        "\nmulti_vote = " + str(multi_vote) +\
+        "\nmessage = " + str(message) +\
+        "\nvalid_votes = " + str(valid_votes)
+
+    send_channel_message("", test_message, "hacker-cat")
+    send_thread_message("C01ARV81VMM", event_data["ts"], question_do(event_data["text"]))
+
+    new_poll = Poll(is_anon, channel, duration, multi_vote, message, valid_votes, event_data["user"])
     new_poll.write_poll_to_file()  # Save to txt
     new_poll.post_poll()  # Post poll message
 
